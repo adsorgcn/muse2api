@@ -16,8 +16,8 @@ Raw link for agents: https://raw.githubusercontent.com/adsorgcn/muse2api/main/in
 ## You are changing this repository
 
 - Files of the original project (`app.py`, `engine.py`, `admin.html`, `README.md`, `docker-compose.yml`, `Dockerfile`, `tools/`, `extension/` and the rest) stay identical to upstream, so upstream releases merge without conflicts. Do not edit them here.
-- Files added by this distribution: `install.sh`, `install.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/README.md`, `.github/workflows/`, `CITATION.cff`, `.zenodo.json`.
+- Files added by this distribution: `install.sh`, `install.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/README.md`.
 - After editing `install.sh`, run `bash -n install.sh`. After editing `install.md`, run the iLang grammar validator in strict mode (`ilang_grammar_validator.py --lint install.md --strict`, from github.com/ilang-ai/ilang-spec); it must report 0 errors and 0 warnings.
 - An upstream release is merged only after `install.sh` has run on a test server: fresh install, re-run as upgrade, and the RUBRIC of `install.md`.
 - Never commit `.env`, `data/`, cookies, API keys or passwords.
-- A release is cut by raising `version` in `CITATION.cff` and `.zenodo.json` together, in a commit of its own.
+- This distribution has no DOI, no CITATION.cff and no Zenodo archive. Do not add them.
