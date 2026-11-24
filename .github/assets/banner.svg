@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-label="muse2api: muse.ai to an OpenAI-compatible API, account pool, one-sentence deploy">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A0E1A"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.82" cy="0.18" r="0.6">
+      <stop offset="0" stop-color="#6D5DFC" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#6D5DFC" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7C6CFF"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#FFFFFF" stroke-opacity="0.04" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="400" fill="url(#bg)"/>
+  <rect width="1280" height="400" fill="url(#grid)"/>
+  <rect width="1280" height="400" fill="url(#glow)"/>
+
+  <g font-family="Inter, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif">
+    <text x="88" y="150" fill="#F5F7FB" font-size="88" font-weight="700" letter-spacing="-2">muse2api</text>
+    <rect x="92" y="176" width="120" height="4" rx="2" fill="url(#accent)"/>
+    <text x="88" y="232" fill="#C9D1E0" font-size="26" font-weight="500">muse.ai 的对话、生图、生视频，变成你自己的 OpenAI 接口</text>
+    <text x="88" y="276" fill="#8A94A8" font-size="20">号池轮换 · 一句话交给 AI 部署 · 可选 New API 中转站</text>
+    <text x="88" y="344" fill="#6B7488" font-size="18" letter-spacing="1">iLang · X @ai_chuhai</text>
+  </g>
+
+  <g transform="translate(888 112)">
+    <rect width="304" height="176" rx="14" fill="#0B1020" stroke="#FFFFFF" stroke-opacity="0.10"/>
+    <circle cx="24" cy="24" r="5" fill="#FF5F57"/>
+    <circle cx="42" cy="24" r="5" fill="#FEBC2E"/>
+    <circle cx="60" cy="24" r="5" fill="#28C840"/>
+    <g font-family="'JetBrains Mono', 'SFMono-Regular', Consolas, 'Microsoft YaHei', monospace" font-size="15">
+      <text x="24" y="70" fill="#7C6CFF">&gt;</text>
+      <text x="44" y="70" fill="#E6EAF2">帮我部署 muse2api，</text>
+      <text x="44" y="96" fill="#E6EAF2">照 install.md 做。</text>
+      <text x="24" y="138" fill="#22D3EE">✓</text>
+      <text x="44" y="138" fill="#8A94A8">MUSE2API_INSTALL_OK</text>
+    </g>
+  </g>
+</svg>
