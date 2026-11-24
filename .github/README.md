@@ -189,7 +189,7 @@ curl -fsSL https://raw.githubusercontent.com/adsorgcn/muse2api/main/install.sh |
 
 ## 这个仓库
 
-fork 自 MUSE2API（MIT，原作者 MUSE2API Authors）。原项目的代码一行没改，本仓库只加了 `install.sh`、`install.md` 和给 AI 读的说明（`AGENTS.md`、`CLAUDE.md`、`GEMINI.md`）。上游出新版，先在测试机上跑通再同步进来。
+fork 自 MUSE2API（MIT，原作者 MUSE2API Authors）。原项目的代码一行没改，本仓库只加了 `install.sh`、`install.md` 和给 AI 读的说明（`AGENTS.md`、`CLAUDE.md`、`GEMINI.md`）。基于上游 v1.6.12，从 `v1.6.12-ilang.1` 起不再跟上游同步。
 
 ## English
 
@@ -200,7 +200,7 @@ muse2api serves the chat, image and video generation of the muse.ai web app as a
 - Optional relay station: `--relay new-api --relay-register open|closed --relay-price free|chat=X,image=Y,video=Z` puts [New API](https://github.com/QuantumNous/new-api) on the same domain and adds muse2api as its channel; `--no-relay` stops it.
 - Import accounts from your own Chrome with `tools/get_muse_cookie.py` or the `extension/` folder (fetch both with `scp` from `/opt/muse2api`).
 
-Forked from MUSE2API (MIT, MUSE2API Authors); upstream code is unchanged.
+Forked from MUSE2API (MIT, MUSE2API Authors) at v1.6.12; the upstream code is unchanged and this fork no longer follows upstream.
 
 ---
 

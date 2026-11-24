@@ -16,9 +16,9 @@ Raw link for agents: https://raw.githubusercontent.com/adsorgcn/muse2api/main/in
 
 ## You are changing this repository
 
-- Files of the original project (`app.py`, `engine.py`, `admin.html`, `README.md`, `docker-compose.yml`, `Dockerfile`, `tools/`, `extension/` and the rest) stay identical to upstream, so upstream releases merge without conflicts. Do not edit them here.
+- This repository is based on MUSE2API v1.6.12 (upstream commit f7f5be5fce4d4e3a4f7240a09ac95c02ed60ff46) and no longer follows upstream: do not merge or sync upstream changes. The files of the original project (`app.py`, `engine.py`, `admin.html`, `README.md`, `docker-compose.yml`, `Dockerfile`, `tools/`, `extension/` and the rest) are still as upstream left them at that commit.
 - Files added by this distribution: `install.sh`, `install.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/README.md`.
 - After editing `install.sh`, run `bash -n install.sh`. After editing `install.md`, run the iLang grammar validator in strict mode (`ilang_grammar_validator.py --lint install.md --strict`, from github.com/ilang-ai/ilang-spec); it must report 0 errors and 0 warnings.
-- An upstream release is merged only after `install.sh` has run on a test server: fresh install, re-run as upgrade, and the RUBRIC of `install.md`.
+- A change is released only after `install.sh` has run on a test server: fresh install, re-run as upgrade, and the RUBRIC of `install.md`.
 - Never commit `.env`, `data/`, cookies, API keys or passwords.
 - This distribution has no DOI, no CITATION.cff and no Zenodo archive. Do not add them.
