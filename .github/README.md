@@ -10,7 +10,16 @@
 帮我部署 muse2api，照 https://raw.githubusercontent.com/adsorgcn/muse2api/main/install.md 做。
 ```
 
-它会问你服务器 IP，请你自己输一次 root 密码，装好后弹出一个干净的 Chrome 窗口让你登录 muse.ai，号就进了号池。以后要加号，新开一个对话贴：
+它先弹一张卡片让你勾这次装哪些：
+
+```text
+1. muse2api 本体：号池和 OpenAI 兼容接口
+2. 域名加 https：用你自己的域名，自动签证书
+3. 中转站 New API：连接模型、应用与 Agent 的 AI 网关
+   勾了 3 再问：注册（开放 / 只由你建账号）、计价（免费 / 按次定价）
+```
+
+然后问你服务器 IP，请你自己输一次 root 密码，装好后弹出一个干净的 Chrome 窗口让你登录 muse.ai，号就进了号池。以后想加哪一项，再贴一遍那句话勾上就行。要加号，新开一个对话贴：
 
 ```text
 导号，照 https://raw.githubusercontent.com/adsorgcn/muse2api/main/install.md 的 M3 做。
@@ -36,7 +45,8 @@ curl -fsSL https://raw.githubusercontent.com/adsorgcn/muse2api/main/install.sh |
 - 带域名时，先在 IP 上装好，再装 nginx、签 Let's Encrypt 证书（不填邮箱），证书签下来才切到 https。签不下来服务照旧在 `http://IP:18610` 能用，脚本会告诉你原因，多半是服务商安全组没放行 80 和 443。
 - 80/443 被宝塔、1Panel 这类面板占着时，脚本把服务装在 IP 上，最后一行是 `MUSE2API_INSTALL_PENDING_PROXY`。照它的提示在面板里给域名建站、反代到 `http://127.0.0.1:18610`，再跑一次同一行就切到 https。80/443 被 Docker 容器或别的程序占着时，脚本在改动任何东西之前就停下。
 - 不碰 sshd、root 登录、密码、钥匙和防火墙规则，不跑 `apt upgrade`。新装 Docker 时 Docker 会加自己的 iptables 规则；没域名时 18610 由 Docker 发布，ufw 管不到它，外面连不上就去服务商安全组放行。
-- 其他选项：`--no-domain` 换回 IP、`--ip` 手动给公网 IPv4、`--ref` 指定版本、`--dir` 换安装目录、`--force` 跳过内存和磁盘检查。
+- 中转站：`--relay new-api --relay-register open|closed --relay-price free|chat=0.01,image=0.05,video=0.5`（价格是每次多少美元），见下面「中转站」一节。
+- 其他选项：`--no-domain` 换回 IP、`--no-relay` 停掉中转站、`--ip` 手动给公网 IPv4、`--ref` 指定版本、`--dir` 换安装目录、`--force` 跳过内存和磁盘检查。
 - 最后一行是 `MUSE2API_INSTALL_OK`、`MUSE2API_INSTALL_PENDING_PROXY` 或 `[muse2api] ERROR:` 三种之一。
 
 ## 导号进号池
@@ -65,6 +75,17 @@ curl 你的地址/v1/chat/completions \
 
 模型：`muse-spark` 对话，`muse-image` 生图，`muse-video` 生视频；`gpt-4o` 一类常见名字也会自动对上。生图、生视频是长任务，用 `/v1/images/tasks`、`/v1/videos` 提交后轮询结果。
 
+## 中转站（New API）
+
+[New API](https://github.com/QuantumNous/new-api) 官方的说法：面向应用、Agent 和团队的自托管 AI 网关，在同一套控制台中管理渠道、访问权限、用量与成本。
+
+- 装在 `/opt/new-api`，跟 muse2api 用同一个域名：`/admin` 和 `/v1/media/` 还是 muse2api，其余交给 New API。安装会把 muse2api 加成它的一个渠道。
+- 管理员是 `root`，密码在服务器上：`grep ^password= /opt/new-api/.admin`。在网页里改了密码，把这个文件也改了，不然以后重跑更新不了 New API。
+- 登录后给自己和亲友建令牌，大家拿令牌和 `https://你的域名/v1` 来用；muse2api 自己的密钥只用于导号和它的管理页。
+- 注册和计价是你装的时候选的，以后重跑带上 `--relay-register` 或 `--relay-price` 就能改。
+- 收款：New API 的说明里写着，开收款、充值、兑换码之前要管理员先确认它的合规条款，收款渠道在它的设置里配。
+- 不想要了：`--no-relay` 停掉它，数据留在 `/opt/new-api`。
+
 ## 要求与实测
 
 - 服务器：Ubuntu 或 Debian，有公网 IPv4，内存至少 900 MiB 且内存加 swap 至少 1700 MiB，盘剩 5G 起，能打开 muse.ai。
@@ -83,6 +104,7 @@ muse2api serves the chat, image and video generation of the muse.ai web app as a
 - Ask your agent: `Deploy muse2api for me by following https://raw.githubusercontent.com/adsorgcn/muse2api/main/install.md`
 - Or run as root on Ubuntu/Debian with a public IPv4: `curl -fsSL https://raw.githubusercontent.com/adsorgcn/muse2api/main/install.sh | bash`. Add `-s -- --domain your.domain` for https: the service is installed on plain IP first and switched only after nginx and the certificate work. Re-run to upgrade; your key and accounts are kept. It never changes sshd, logins or firewall rules (a fresh Docker install adds Docker's own iptables rules, and without a domain port 18610 is published past ufw).
 - Import accounts from your own Chrome with `tools/get_muse_cookie.py` or the `extension/` folder (fetch both with `scp` from `/opt/muse2api`).
+- Optional relay station: `--relay new-api --relay-register open|closed --relay-price free|chat=X,image=Y,video=Z` puts [New API](https://github.com/QuantumNous/new-api) on the same domain and adds muse2api as its channel; `--no-relay` stops it.
 
 Forked from MUSE2API (MIT, MUSE2API Authors); upstream code is unchanged.
 

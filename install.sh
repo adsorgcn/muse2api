@@ -24,6 +24,15 @@
 #   --dir PATH      install directory (default /opt/muse2api)
 #   --ref REF       branch, tag or commit to deploy (default main)
 #   --force         continue when memory, disk or the muse.ai check is below the minimum
+#
+# Relay station (New API, https://github.com/QuantumNous/new-api) in front of muse2api,
+# on the same domain; needs --domain the first time:
+#   --relay new-api                  install it and add muse2api as a channel
+#   --relay-register open|closed     whether people can sign up themselves
+#   --relay-price free|chat=X,image=Y,video=Z   price per call in USD (free = 0 for all three)
+#   --no-relay                       stop New API (its data stays in /opt/new-api) and send the domain to muse2api again
+# Both choices are required the first time and can be changed on any later run. The New API
+# admin is "root"; its password is created on the server in /opt/new-api/.admin.
 set -Eeuo pipefail
 
 REPO_URL="https://github.com/adsorgcn/muse2api"
@@ -32,6 +41,9 @@ PORT=18610
 PLACEHOLDER_KEY="m2a_your_secret_admin_key_here"
 LOCK_FILE=/run/muse2api-install.lock
 SITE_MARK="# managed by muse2api install.sh"
+NEWAPI_IMAGE="calciumion/new-api:v1.0.0-rc.51"
+RELAY_DIR=/opt/new-api
+RELAY_PORT=3000
 
 WARNS=()
 say()  { printf '[muse2api] %s\n' "$*"; }
@@ -116,7 +128,7 @@ env_default() {
 
 # The whole file is read before main runs, so "curl ... | bash" cannot lose the rest of the script.
 main() {
-  local DIR="/opt/muse2api" REF="main" DOMAIN="" NO_DOMAIN=0 IP="" FORCE=0
+  local DIR="/opt/muse2api" REF="main" DOMAIN="" NO_DOMAIN=0 IP="" FORCE=0 RELAY="" RELAY_REG="" RELAY_PRICE="" NO_RELAY=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --domain)    DOMAIN="${2:-}"; [ -n "$DOMAIN" ] || die "--domain needs a name"; shift 2 ;;
@@ -125,6 +137,10 @@ main() {
       --dir)       DIR="${2:-}"; [ -n "$DIR" ] || die "--dir needs a path"; shift 2 ;;
       --ref)       REF="${2:-}"; [ -n "$REF" ] || die "--ref needs a value"; shift 2 ;;
       --force)     FORCE=1; shift ;;
+      --relay)     RELAY="${2:-}"; [ "$RELAY" = new-api ] || die "--relay supports: new-api"; shift 2 ;;
+      --relay-register) RELAY_REG="${2:-}"; case "$RELAY_REG" in open|closed) ;; *) die "--relay-register is open or closed" ;; esac; shift 2 ;;
+      --no-relay)  NO_RELAY=1; shift ;;
+      --relay-price) RELAY_PRICE="${2:-}"; [ -n "$RELAY_PRICE" ] || die "--relay-price needs free or chat=X,image=Y,video=Z"; shift 2 ;;
       -h|--help)   echo "see the comments at the top of install.sh"; return 0 ;;
       *)           die "unknown option: $1" ;;
     esac
@@ -268,6 +284,35 @@ main() {
     grep "server_name $DOMAIN;" "$SITE" >/dev/null || die "$SITE is set up for another domain; remove it (and the old certificate if you no longer need it) and re-run; nothing was changed"
   fi
 
+  # ------------------------------------------------------------ relay checks
+  local RELAY_MARK="$RELAY_DIR/.install-relay" RELAY_NEW=0 P_CHAT="" P_IMAGE="" P_VIDEO=""
+  if [ "$NO_RELAY" = 1 ] && [ -n "$RELAY" ]; then die "use either --relay or --no-relay"; fi
+  if [ -z "$RELAY" ] && [ "$NO_RELAY" = 0 ] && [ -f "$RELAY_MARK" ]; then RELAY=new-api; fi
+  if [ "$NO_DOMAIN" = 1 ] && [ "$NO_RELAY" = 0 ] && [ -f "$RELAY_MARK" ]; then die "the relay station runs on the domain; add --no-relay to go back to plain IP; muse2api was not touched"; fi
+  if [ -n "$RELAY" ]; then
+    if [ "$MODE" != domain ] || [ "$WEB" != nginx ]; then die "the relay needs --domain on a server where this installer sets up nginx; muse2api was not touched"; fi
+    if [ ! -f "$RELAY_MARK" ]; then RELAY_NEW=1; fi
+    if [ "$RELAY_NEW" = 1 ] && { [ -z "$RELAY_REG" ] || [ -z "$RELAY_PRICE" ]; }; then
+      die "first relay install: choose --relay-register open|closed and --relay-price free|chat=X,image=Y,video=Z; muse2api was not touched"
+    fi
+    if [ -n "$RELAY_PRICE" ]; then
+      if [ "$RELAY_PRICE" = free ]; then
+        P_CHAT=0; P_IMAGE=0; P_VIDEO=0
+      else
+        local kv k v
+        for kv in ${RELAY_PRICE//,/ }; do
+          k="${kv%%=*}"; v="${kv#*=}"
+          printf '%s' "$v" | grep -E '^[0-9]+([.][0-9]+)?$' >/dev/null || die "--relay-price: $kv is not a number"
+          case "$k" in chat) P_CHAT=$v ;; image) P_IMAGE=$v ;; video) P_VIDEO=$v ;; *) die "--relay-price: unknown item $k (use chat, image, video)" ;; esac
+        done
+        if [ -z "$P_CHAT" ] || [ -z "$P_IMAGE" ] || [ -z "$P_VIDEO" ]; then die "--relay-price needs all three: chat=X,image=Y,video=Z"; fi
+      fi
+    fi
+    if ss -tlnH "sport = :$RELAY_PORT" | grep . >/dev/null && ! { command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -x new-api >/dev/null; }; then
+      die "port $RELAY_PORT is already in use by: $(listeners "sport = :$RELAY_PORT"); muse2api was not touched"
+    fi
+  fi
+
   # ------------------------------------------------------------ docker
   if ! command -v docker >/dev/null 2>&1; then
     say "installing Docker from download.docker.com ($DISTRO $CODENAME)"
@@ -396,6 +441,15 @@ main() {
     } > "$OVR.tmp"
     mv "$OVR.tmp" "$OVR"
   }
+  # nginx applies a reload a moment after "systemctl reload" returns
+  retry_https() {
+    local i
+    for i in $(seq 1 15); do
+      if curl -fsS --max-time 10 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN$1" >/dev/null 2>&1; then return 0; fi
+      sleep 1
+    done
+    return 1
+  }
   wait_healthy() {
     local i
     for i in $(seq 1 60); do
@@ -449,8 +503,10 @@ main() {
       docker compose up -d </dev/null
       wait_healthy
     fi
-    curl -fsS --max-time 15 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/healthz" >/dev/null 2>&1 \
-      || die "https://$DOMAIN/healthz does not answer through nginx; check $SITE and 'nginx -t'"
+    # once the relay owns "/", muse2api is reached under /admin
+    local HCHK=/healthz
+    if grep '# muse2api-direct' "$SITE" >/dev/null; then HCHK=/admin; fi
+    retry_https "$HCHK" || die "https://$DOMAIN$HCHK does not answer through nginx; check $SITE and 'nginx -t'"
     say "https is on: https://$DOMAIN"
   elif [ "$MODE" = domain ] && [ "$WEB" = panel ]; then
     if curl -fsS --max-time 15 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/healthz" >/dev/null 2>&1; then
@@ -480,11 +536,159 @@ main() {
     say "back on plain IP; the nginx site and certificate for $MANAGED_DOMAIN were left in place"
   fi
 
+  # ------------------------------------------------------------ relay station off
+  if [ "$NO_RELAY" = 1 ] && [ -f "$RELAY_MARK" ]; then
+    (cd "$RELAY_DIR" && docker compose down </dev/null) || true
+    rm -f "$RELAY_MARK"
+    if [ -f "$SITE" ] && grep '# muse2api-direct' "$SITE" >/dev/null; then
+      sed -i "/# muse2api-direct/! s#proxy_pass http://127.0.0.1:$RELAY_PORT;#proxy_pass http://127.0.0.1:$PORT;#" "$SITE"
+      if nginx -t >/dev/null 2>&1; then systemctl reload nginx; fi
+    fi
+    say "relay station stopped; its data stays in $RELAY_DIR (run with --relay new-api to start it again)"
+  fi
+
+  # ------------------------------------------------------------ relay station (New API)
+  local RELAY_ON=0
+  if [ -n "$RELAY" ]; then
+    apt_install jq
+    install -d -m 700 "$RELAY_DIR"
+    local NET MKEY SAVE_ENVF="$ENVF"
+    NET=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' muse2api 2>/dev/null | awk '{print $1}' || true)
+    [ -n "$NET" ] || die "cannot find the Docker network of the muse2api container"
+    MKEY=$(env_get MUSE2API_KEY)
+    ENVF="$RELAY_DIR/.env"
+    umask 077
+    touch "$ENVF"
+    env_default SESSION_SECRET "$(openssl rand -hex 32)"
+    env_default CRYPTO_SECRET "$(openssl rand -hex 32)"
+    env_set     SESSION_COOKIE_SECURE true
+    env_set     SESSION_COOKIE_TRUSTED_URL "https://$DOMAIN"
+    env_default STREAMING_TIMEOUT 600
+    env_default MAX_REQUEST_BODY_MB 200
+    chmod 600 "$ENVF"
+    umask 022
+    ENVF="$SAVE_ENVF"
+    {
+      echo "$SITE_MARK"
+      echo "services:"
+      echo "  new-api:"
+      echo "    image: $NEWAPI_IMAGE"
+      echo "    container_name: new-api"
+      echo "    restart: always"
+      echo "    env_file:"
+      echo "      - .env"
+      echo "    volumes:"
+      echo "      - ./data:/data"
+      echo "    ports:"
+      echo "      - \"127.0.0.1:$RELAY_PORT:3000\""
+      echo "    networks:"
+      echo "      - default"
+      echo "      - muse2api"
+      echo "    logging:"
+      echo "      driver: json-file"
+      echo "      options:"
+      echo "        max-size: \"10m\""
+      echo "        max-file: \"3\""
+      echo "networks:"
+      echo "  muse2api:"
+      echo "    external: true"
+      echo "    name: $NET"
+    } > "$RELAY_DIR/docker-compose.yml"
+    say "starting New API ($NEWAPI_IMAGE)"
+    (cd "$RELAY_DIR" && docker compose pull -q </dev/null && docker compose up -d </dev/null)
+    local i up=0
+    for i in $(seq 1 60); do
+      if curl -fsS --max-time 3 "http://127.0.0.1:$RELAY_PORT/api/status" >/dev/null 2>&1; then up=1; break; fi
+      sleep 2
+    done
+    if [ "$up" != 1 ]; then (cd "$RELAY_DIR" && docker compose logs --tail 40 >&2) || true; die "New API did not start"; fi
+
+    local NA="http://127.0.0.1:$RELAY_PORT" ADMIN_FILE="$RELAY_DIR/.admin" PW="" TOKEN="" R="" CH_ID=""
+    if [ "$(curl -fsS "$NA/api/setup" | jq -r '.data.status' || true)" != true ]; then
+      PW=$(openssl rand -base64 30 | tr -dc 'A-Za-z0-9' | head -c 20 || true)
+      umask 077
+      printf 'username=root\npassword=%s\n' "$PW" > "$ADMIN_FILE"
+      umask 022
+      R=$(jq -n --arg p "$PW" '{username:"root",password:$p,confirmPassword:$p,SelfUseModeEnabled:false,DemoSiteEnabled:false}' \
+        | curl -fsS -X POST "$NA/api/setup" -H 'Content-Type: application/json' --data-binary @- || true)
+      [ "$(printf '%s' "$R" | jq -r '.success' 2>/dev/null || true)" = true ] || die "New API setup failed: $(printf '%s' "$R" | jq -r '.message' 2>/dev/null || true)"
+      say "New API admin created: user root, password in $ADMIN_FILE"
+    elif [ -f "$ADMIN_FILE" ]; then
+      PW=$(sed -n 's/^password=//p' "$ADMIN_FILE")
+    fi
+    if [ -n "$PW" ]; then
+      TOKEN=$(jq -n --arg p "$PW" '{username:"root",password:$p}' \
+        | curl -fsS -X POST "$NA/api/user/login" -H 'Content-Type: application/json' --data-binary @- | jq -r '.data.access_token // empty' || true)
+    fi
+    if [ -z "$TOKEN" ]; then
+      warn "could not log in to New API as root with the password in $ADMIN_FILE (changed in the web page?); the muse2api channel, sign-up and prices were not updated on this run"
+    else
+      na() { local m="$1" p="$2"; shift 2; curl -fsS -X "$m" "$NA$p" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@"; }
+      ch_id() { na GET "/api/channel/search?keyword=muse2api" | jq -r '[.. | objects | select(.name? == "muse2api") | .id] | first // empty' || true; }
+      CH_ID=$(ch_id)
+      if [ -z "$CH_ID" ]; then
+        R=$(jq -n --arg k "$MKEY" '{mode:"single",channel:{type:1,name:"muse2api",key:$k,base_url:"http://muse2api:18610",models:"muse-spark,muse-image,muse-video",group:"default"}}' \
+          | na POST /api/channel/ --data-binary @- || true)
+        [ "$(printf '%s' "$R" | jq -r '.success' 2>/dev/null || true)" = true ] || die "adding the muse2api channel to New API failed: $(printf '%s' "$R" | jq -r '.message' 2>/dev/null || true)"
+        CH_ID=$(ch_id)
+        say "added muse2api as a New API channel"
+      else
+        R=$(jq -n --argjson id "$CH_ID" --arg k "$MKEY" '{id:$id,type:1,name:"muse2api",key:$k,base_url:"http://muse2api:18610",models:"muse-spark,muse-image,muse-video",group:"default"}' \
+          | na PUT /api/channel/ --data-binary @- || true)
+        [ "$(printf '%s' "$R" | jq -r '.success' 2>/dev/null || true)" = true ] || warn "updating the muse2api channel in New API failed: $(printf '%s' "$R" | jq -r '.message' 2>/dev/null || true)"
+      fi
+      if [ -n "$RELAY_REG" ]; then
+        R=$(jq -n --argjson v "$([ "$RELAY_REG" = open ] && echo true || echo false)" '{key:"RegisterEnabled",value:$v}' | na PUT /api/option/ --data-binary @- || true)
+        [ "$(printf '%s' "$R" | jq -r '.success' 2>/dev/null || true)" = true ] || die "setting sign-up in New API failed: $(printf '%s' "$R" | jq -r '.message' 2>/dev/null || true)"
+        say "New API sign-up: $RELAY_REG"
+      fi
+      if [ -n "$P_CHAT" ]; then
+        local MP
+        MP=$(na GET /api/option/ | jq -r '[.data[]? | select(.key == "ModelPrice") | .value] | first // "{}"' || true)
+        if [ -z "$MP" ] || [ "$MP" = null ]; then MP='{}'; fi
+        MP=$(printf '%s' "$MP" | jq -c --argjson c "$P_CHAT" --argjson i "$P_IMAGE" --argjson v "$P_VIDEO" '. + {"muse-spark": $c, "muse-image": $i, "muse-video": $v}')
+        R=$(jq -n --arg v "$MP" '{key:"ModelPrice",value:$v}' | na PUT /api/option/ --data-binary @- || true)
+        [ "$(printf '%s' "$R" | jq -r '.success' 2>/dev/null || true)" = true ] || die "setting prices in New API failed: $(printf '%s' "$R" | jq -r '.message' 2>/dev/null || true)"
+        say "New API prices per call (USD): chat $P_CHAT, image $P_IMAGE, video $P_VIDEO"
+      fi
+      if [ "$RELAY_NEW" = 1 ] && [ -n "$CH_ID" ]; then
+        R=$(na GET "/api/channel/test/$CH_ID?model=muse-spark" || true)
+        if [ "$(printf '%s' "$R" | jq -r '.success // false' 2>/dev/null || true)" = true ]; then
+          say "New API reached muse2api (channel test passed)"
+        else
+          warn "New API's test of the muse2api channel did not pass: $(printf '%s' "$R" | jq -r '.message // empty' 2>/dev/null || true)"
+        fi
+      fi
+    fi
+    # nginx: /admin and /v1/media/ stay with muse2api, everything else goes to New API
+    if ! grep '# muse2api-direct' "$SITE" >/dev/null; then
+      sed -i '/^[[:space:]]*location \/ {/i\    location ^~ /v1/media/ {\n        limit_except GET { deny all; }\n        proxy_pass http://127.0.0.1:18610; # muse2api-direct\n        proxy_set_header Host $host;\n    }\n    location ^~ /admin {\n        proxy_pass http://127.0.0.1:18610; # muse2api-direct\n        proxy_read_timeout 600s;\n        proxy_buffering off;\n        client_max_body_size 200M;\n        proxy_set_header Host $host;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }' "$SITE"
+    fi
+    sed -i "/# muse2api-direct/! s#proxy_pass http://127.0.0.1:$PORT;#proxy_pass http://127.0.0.1:$RELAY_PORT;#" "$SITE"
+    nginx -t >/dev/null 2>&1 || die "nginx -t failed after adding the relay: $(nginx -t 2>&1 | tail -n 2 | tr '\n' ' ' || true)"
+    systemctl reload nginx
+    retry_https /api/status || die "https://$DOMAIN/api/status (New API) does not answer through nginx"
+    echo "$RELAY" > "$RELAY_MARK"
+    RELAY_ON=1
+    say "relay station is on: https://$DOMAIN"
+  fi
+
   # ------------------------------------------------------------ summary
+  if [ "$RELAY_ON" = 1 ]; then
+    cat <<EOF
+
+relay station (New API) is running on https://$DOMAIN
+  API base    https://$DOMAIN/v1   people use keys they create in New API; models muse-spark, muse-image, muse-video
+  New API     https://$DOMAIN   admin user root, password on this server: grep ^password= $RELAY_DIR/.admin
+              (if you change it in the web page, also change that file, or later runs cannot update New API)
+  payments    New API asks you to confirm its compliance terms before payments, top-ups and redeem codes work;
+              payment providers are set up in its settings
+EOF
+  fi
   cat <<EOF
 
 muse2api is running: ${VERSION:-?} (${COMMIT:0:12}) in $DIR
-  API base    $BASE/v1        models: muse-spark, muse-image, muse-video
+  API base    $BASE/v1        models: muse-spark, muse-image, muse-video$([ "$RELAY_ON" = 1 ] && echo "   (behind the relay: use New API keys there)")
   admin page  $BASE/admin?key=<your key>
   your key    on this server: grep ^MUSE2API_KEY= $ENVF
               to change it, edit that line and re-run this installer; the admin page's
@@ -514,7 +718,7 @@ EOF
     echo "              Until then muse2api answers on http://$IP:$PORT"
     echo "MUSE2API_INSTALL_PENDING_PROXY base=https://$DOMAIN local=http://$IP:$PORT commit=$COMMIT"
   else
-    echo "MUSE2API_INSTALL_OK base=$BASE commit=$COMMIT domain=$([ "$MODE" = domain ] && echo "$DOMAIN" || echo none)"
+    echo "MUSE2API_INSTALL_OK base=$BASE commit=$COMMIT domain=$([ "$MODE" = domain ] && echo "$DOMAIN" || echo none) relay=$([ "$RELAY_ON" = 1 ] && echo new-api || echo none)"
   fi
 }
 

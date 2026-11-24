@@ -10,6 +10,7 @@ Follow `install.md` in this repository step by step. It is an iLang engineering 
 - the user types the root password and logs in to muse.ai himself; you never ask for either in chat;
 - accounts are imported one by one and each is tested;
 - the result is checked by the RUBRIC at the end of the book.
+- the user ticks on a choice card what to install (muse2api, a domain with https, the New API relay station) and the relay settings; you never choose for the user.
 
 Raw link for agents: https://raw.githubusercontent.com/adsorgcn/muse2api/main/install.md
 
